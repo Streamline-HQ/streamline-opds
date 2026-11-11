@@ -59,84 +59,13 @@ func nullable(v any) *string {
 	return &s
 }
 
-// ensureSchema creates the token store and, once, copies the tokens core held
-// before OPDS became an extension. The copy runs in one transaction that
-// re-reads its own marker, so a token rotated or deleted afterwards is never
-// brought back by a request that started before it.
 func ensureSchema() error {
-	if done, err := legacyCopied(); err == nil && done {
-		return nil
-	}
-	for _, ddl := range []string{
-		`CREATE TABLE IF NOT EXISTS tokens(
-			user_id INTEGER PRIMARY KEY,
-			token_hash TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			last_used_at TEXT,
-			last_client TEXT)`,
-		`CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)`,
-	} {
-		if err := exec(ddl); err != nil {
-			return err
-		}
-	}
-	if err := exec("BEGIN IMMEDIATE"); err != nil {
-		return err
-	}
-	if err := copyLegacy(); err != nil {
-		_ = exec("ROLLBACK")
-		return err
-	}
-	err := exec("COMMIT")
-	return err
-}
-
-func legacyCopied() (bool, error) {
-	rows, err := query("SELECT 1 FROM meta WHERE key = 'legacy_copied'")
-	return len(rows) > 0, err
-}
-
-func copyLegacy() error {
-	if done, err := legacyCopied(); err != nil || done {
-		return err
-	}
-	rows, err := query(
-		`SELECT user_id, token_hash, created_at, last_used_at, last_client
-		FROM streamline_legacy_opds_tokens`,
-	)
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC().Format(storedTime)
-	for _, r := range rows {
-		created := normalizeTime(asString(r[2]), now)
-		var lastUsed any
-		if s := asString(r[3]); s != "" {
-			lastUsed = normalizeTime(s, "")
-		}
-		if err := exec(
-			`INSERT OR IGNORE INTO tokens(user_id, token_hash, created_at, last_used_at, last_client)
-			VALUES(?, ?, ?, ?, ?)`,
-			asInt(r[0]),
-			asString(r[1]),
-			created,
-			lastUsed,
-			nullable(r[4]),
-		); err != nil {
-			return err
-		}
-	}
-	err = exec(
-		"INSERT OR IGNORE INTO meta(key, value) VALUES('legacy_copied', '1')",
-	)
-	return err
-}
-
-func normalizeTime(s, fallback string) string {
-	if t := parseTime(s); !t.IsZero() {
-		return t.UTC().Format(storedTime)
-	}
-	return fallback
+	return exec(`CREATE TABLE IF NOT EXISTS tokens(
+		user_id INTEGER PRIMARY KEY,
+		token_hash TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		last_used_at TEXT,
+		last_client TEXT)`)
 }
 
 func hashToken(token string) string {

@@ -22,7 +22,7 @@ func manifest() int32 {
 		Mounts:        []sdk.Mount{{Prefix: "/opds", Auth: "self"}},
 		Views: []string{
 			"users", "user_logins", "books", "book_series", "authors",
-			"book_contributions", "book_files", "legacy_opds_tokens",
+			"book_contributions", "book_files",
 		},
 		Services: []string{"serve_file", "serve_poster"},
 		AccountCards: []sdk.AccountCard{{
