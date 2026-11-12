@@ -1,0 +1,82 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Check the tag names the module's version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          grep -Eq "Version:[[:space:]]+\"${version}\"" main.go || {
+            echo "main.go does not declare version ${version}" >&2
+            exit 1
+          }
+
+      - name: Build
+        run: >-
+          GOOS=wasip1 GOARCH=wasm go build -trimpath -buildmode=c-shared
+          -o opds.wasm .
+
+      - name: Checksum
+        run: sha256sum opds.wasm > opds.wasm.sha256
+
+      - name: Release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          sum="$(cut -d' ' -f1 opds.wasm.sha256)"
+          {
+            echo "OPDS extension for Streamline, ${TAG}."
+            echo
+            echo "SHA-256 of \`opds.wasm\`:"
+            echo
+            echo "    ${sum}"
+            echo
+            echo "Add it under \`extensions\` in the Streamline config:"
+            echo
+            echo "    - name: opds"
+            echo "      source: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/opds.wasm"
+            echo "      sha256: ${sum}"
+          } > notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: >-
+          gh release create "$TAG" opds.wasm opds.wasm.sha256
+          --title "$TAG" --notes-file notes.md --verify-tag
+
+      - name: Check the published file against its checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir published
+          gh release download "$TAG" --dir published
+          (cd published && sha256sum --check opds.wasm.sha256)
+          cmp opds.wasm published/opds.wasm

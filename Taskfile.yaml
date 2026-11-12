@@ -11,7 +11,7 @@ tasks:
 
   build:
     desc: Build opds.wasm
-    cmd: GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o {{.WASM}} .
+    cmd: GOOS=wasip1 GOARCH=wasm go build -trimpath -buildmode=c-shared -o {{.WASM}} .
     sources: ["*.go", go.mod, go.sum]
     generates: ["{{.WASM}}"]
 

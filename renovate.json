@@ -1,0 +1,30 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": [
+		"config:recommended",
+		"helpers:pinGitHubActionDigests"
+	],
+	"schedule": [
+		"* 0-6 * * 1"
+	],
+	"minimumReleaseAge": "3 days",
+	"labels": ["dependencies"],
+	"postUpdateOptions": ["gomodTidy"],
+	"packageRules": [
+		{
+			"matchManagers": ["github-actions"],
+			"matchUpdateTypes": ["minor", "patch", "digest"],
+			"groupName": "github actions"
+		},
+		{
+			"matchManagers": ["gomod"],
+			"matchUpdateTypes": ["minor", "patch", "digest"],
+			"groupName": "go modules"
+		},
+		{
+			"description": "The SDK is replaced by a sibling Streamline checkout until it is tagged; there is nothing to bump.",
+			"matchPackageNames": ["github.com/datahearth/streamline/extensions/sdk"],
+			"enabled": false
+		}
+	]
+}
