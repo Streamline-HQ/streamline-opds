@@ -1,0 +1,52 @@
+version: "2"
+
+issues:
+  max-same-issues: 0
+  max-issues-per-linter: 0
+
+formatters:
+  enable:
+    - gofumpt
+    - golines
+  exclusions:
+    generated: lax
+  settings:
+    golines:
+      max-len: 85
+
+linters:
+  default: standard
+  enable:
+    - unparam
+    - unconvert
+    - modernize
+    - prealloc
+    - ginkgolinter
+    - errorlint
+    - bodyclose
+    - gosec
+    - nolintlint
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    unparam:
+      check-exported: true
+  exclusions:
+    generated: lax
+    rules:
+      # unused does not know //go:wasmexport roots, so it sees `manifest` and
+      # `handle`, and through them the whole guest, as dead.
+      - linters: [unused]
+        path: ^[^/]+\.go$
+      - linters: [gosec]
+        path: (_test\.go$|^e2e/)
+        text: "G(101|104|124|301|302|304|306|404)"
+      - linters: [errcheck]
+        source: .*\.Close\(\)
+      - linters: [gosec]
+        source: .*\.Close\(\)
+        text: "G104"
+      - linters: [staticcheck]
+        text: "ST1001"
+        path: e2e/

@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+vars:
+  WASM: opds.wasm
+
+tasks:
+  default:
+    desc: Build the extension
+    deps: [build]
+
+  build:
+    desc: Build opds.wasm
+    cmd: GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o {{.WASM}} .
+    sources: ["*.go", go.mod, go.sum]
+    generates: ["{{.WASM}}"]
+
+  lint:
+    desc: Lint the guest (wasip1) and the end-to-end suite (host)
+    vars:
+      LINT:
+        sh: go -C e2e tool -n golangci-lint
+    cmds:
+      - GOOS=wasip1 GOARCH=wasm {{.LINT}} run
+      - cd e2e && {{.LINT}} run --config ../.golangci.yml ./...
+
+  fmt:
+    desc: Format all code
+    vars:
+      LINT:
+        sh: go -C e2e tool -n golangci-lint
+    cmds:
+      - GOOS=wasip1 GOARCH=wasm {{.LINT}} fmt
+      - cd e2e && {{.LINT}} fmt --config ../.golangci.yml ./...
+
+  test:
+    desc: Boot a Streamline binary (STREAMLINE_BIN) and check the module against it
+    deps: [build]
+    preconditions:
+      - sh: test -n "$STREAMLINE_BIN" && test -x "$STREAMLINE_BIN"
+        msg: >-
+          STREAMLINE_BIN must name an executable Streamline binary, e.g.
+          STREAMLINE_BIN=../streamline/streamline task test
+    cmd: cd e2e && go tool ginkgo run -r --keep-going ./...
