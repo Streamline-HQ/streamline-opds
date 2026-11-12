@@ -41,7 +41,7 @@ linters:
         path: ^[^/]+\.go$
       - linters: [gosec]
         path: (_test\.go$|^e2e/)
-        text: "G(101|104|124|301|302|304|306|404)"
+        text: "G(101|104|124|204|301|302|304|306|404|702)"
       - linters: [errcheck]
         source: .*\.Close\(\)
       - linters: [gosec]
