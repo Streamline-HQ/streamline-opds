@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -66,6 +68,35 @@ func ensureSchema() error {
 		created_at TEXT NOT NULL,
 		last_used_at TEXT,
 		last_client TEXT)`)
+}
+
+// newSecret draws a reader token. The guest's own entropy cannot be trusted
+// alone: a fresh instance serves every request and wazero hands each one the
+// same crypto/rand stream, so a token from it alone is identical for every
+// user. SQLite's randomblob is seeded by the host and differs per call; the
+// guest's stream and the clock are mixed in so that no single source has to
+// hold.
+func newSecret() (string, error) {
+	rows, err := query("SELECT hex(randomblob(32))")
+	if err != nil {
+		return "", err
+	}
+	if len(rows) != 1 || len(rows[0]) != 1 {
+		return "", errors.New("host returned no random bytes")
+	}
+	host, _ := rows[0][0].(string)
+	if len(host) != 64 {
+		return "", errors.New("host returned an unexpected random value")
+	}
+	local := make([]byte, 32)
+	if _, err := rand.Read(local); err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	h.Write([]byte(host))
+	h.Write(local)
+	h.Write(time.Now().AppendFormat(nil, time.RFC3339Nano))
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
 func hashToken(token string) string {

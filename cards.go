@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -75,11 +73,10 @@ func tokenStatus(userID int64) (sdk.Response, error) {
 }
 
 func rotateToken(userID int64) (sdk.Response, error) {
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	secret, err := newSecret()
+	if err != nil {
 		return sdk.Response{}, err
 	}
-	secret := base64.RawURLEncoding.EncodeToString(raw)
 	if err := exec(
 		`INSERT INTO tokens(user_id, token_hash, created_at) VALUES(?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET token_hash = excluded.token_hash,
