@@ -18,7 +18,9 @@ func authenticate(r sdk.Request) (userID int64, ok bool, err error) {
 	}
 	rows, err := query(
 		`SELECT u.user_id, t.token_hash FROM streamline_user_logins u
-		JOIN tokens t ON t.user_id = u.user_id WHERE u.email = ?`,
+		JOIN tokens t ON t.user_id = u.user_id
+		JOIN streamline_users a ON a.id = u.user_id
+		WHERE u.email = ? AND a.locked = 0`,
 		strings.ToLower(name),
 	)
 	if err != nil || len(rows) == 0 {
