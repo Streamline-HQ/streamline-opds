@@ -19,5 +19,4 @@ var _ = BeforeSuite(func() {
 	Expect(os.Getenv("STREAMLINE_BIN")).NotTo(BeEmpty(),
 		"STREAMLINE_BIN must name a Streamline binary")
 	shared = startInstance(instanceOptions{enabled: true})
-	DeferCleanup(shared.stop)
 })

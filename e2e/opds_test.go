@@ -2,9 +2,12 @@ package e2e
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"net/http"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -50,19 +53,22 @@ var _ = Describe("OPDS extension", func() {
 
 	Describe("loading", func() {
 		It("reaches running with the grants it asks for", func() {
-			r := in.do(reqOpts{path: "/api/v1/extensions", bearer: in.adminToken()})
-			Expect(r.status).To(Equal(http.StatusOK), r.String())
-			list := decode[struct {
-				Items []struct {
-					Name    string `json:"name"`
-					State   string `json:"state"`
-					Version string `json:"version"`
-				} `json:"items"`
-			}](r)
-			Expect(list.Items).To(HaveLen(1))
-			Expect(list.Items[0].Name).To(Equal(extName))
-			Expect(list.Items[0].State).To(Equal("running"))
-			Expect(list.Items[0].Version).NotTo(BeEmpty())
+			items, ok := in.extensions()
+			Expect(ok).To(BeTrue())
+			Expect(items).To(HaveLen(1))
+			Expect(items[0].Name).To(Equal(extName))
+			Expect(items[0].State).To(Equal("running"))
+			Expect(items[0].Version).NotTo(BeEmpty())
+		})
+
+		It("holds exactly what the manifest asks for, after approval", func() {
+			items, _ := in.extensions()
+			Expect(items).To(HaveLen(1))
+			req, got := items[0].Requested, items[0].Granted
+			Expect(req.viewNames()).NotTo(BeEmpty())
+			Expect(got.viewNames()).To(ConsistOf(req.viewNames()))
+			Expect(got.mountPrefixes()).To(ConsistOf(req.mountPrefixes()))
+			Expect(got.Services).To(ConsistOf(req.Services))
 		})
 
 		It("starts with no tokens", func() {
@@ -143,7 +149,6 @@ var _ = Describe("OPDS extension", func() {
 			// Each request runs a fresh instance of the module, and a guest
 			// that draws from its own random stream repeats it every time.
 			other := startInstance(instanceOptions{enabled: true})
-			DeferCleanup(other.stop)
 			admin := &account{session: other.adminToken()}
 			Expect(admin.newToken(other)).NotTo(Equal(first))
 			Expect(admin.newToken(other)).NotTo(Equal(second))
@@ -242,10 +247,15 @@ var _ = Describe("OPDS extension", func() {
 
 		It("searches titles and authors, wildcards as text", func() {
 			byTitle := parseFeed(get("/search?q=messiah"))
-			Expect(byTitle.titles()).To(ContainElement("Dune Messiah"))
+			Expect(byTitle.titles()).NotTo(BeEmpty())
+			Expect(byTitle.titles()).To(HaveEach("Dune Messiah"))
 
 			byAuthor := parseFeed(get("/search?q=herbert"))
-			Expect(byAuthor.titles()).To(ContainElement("Dune Messiah"))
+			Expect(byAuthor.titles()).NotTo(BeEmpty())
+			Expect(byAuthor.titles()).To(HaveEach("Dune Messiah"))
+
+			Expect(parseFeed(get("/search?q=zzzz")).titles()).To(BeEmpty())
+			Expect(parseFeed(get("/search")).titles()).To(BeEmpty())
 
 			Expect(parseFeed(get("/search?q=%25")).titles()).To(BeEmpty())
 			Expect(parseFeed(get("/search?q=_")).titles()).To(BeEmpty())
@@ -271,6 +281,21 @@ var _ = Describe("OPDS extension", func() {
 			})
 			Expect(part.status).To(Equal(http.StatusPartialContent))
 			Expect(part.body).To(Equal(epubBody[:2]))
+
+			ranged := func(spec string) reply {
+				GinkgoHelper()
+				return in.do(reqOpts{
+					path:    "/opds/download/" + itoa(dune.id) + "/epub",
+					basic:   [2]string{reader.email, secret},
+					useAuth: true,
+					headers: map[string]string{"Range": spec},
+				})
+			}
+			suffix := ranged("bytes=-4")
+			Expect(suffix.status).To(Equal(http.StatusPartialContent))
+			Expect(suffix.body).To(Equal(epubBody[len(epubBody)-4:]))
+			Expect(ranged("bytes=9999-").status).
+				To(Equal(http.StatusRequestedRangeNotSatisfiable))
 		})
 
 		It("serves a cover from the poster cache", func() {
@@ -416,6 +441,21 @@ var _ = Describe("OPDS extension", func() {
 			requireAll401(reader.email, userPassword)
 		})
 
+		It("refuses a locked account until the lock expires", func() {
+			in.exec(
+				"UPDATE users SET locked_until = ? WHERE id = ?",
+				time.Now().Add(time.Hour), reader.id,
+			)
+			requireAll401(reader.email, secret)
+
+			in.exec(
+				"UPDATE users SET locked_until = ? WHERE id = ?",
+				time.Now().Add(-time.Hour), reader.id,
+			)
+			Expect(in.opds("/", reader.email, secret).status).
+				To(Equal(http.StatusOK))
+		})
+
 		It("follows an account's email and drops the old name", func() {
 			newEmail := "renamed-" + reader.email
 			patch := in.do(reqOpts{
@@ -476,10 +516,8 @@ var _ = Describe("OPDS extension", func() {
 		It("cannot be pointed at a path", func() {
 			id := itoa(book.id)
 			for _, p := range []string{
-				"/download/" + id + "/../../../etc/passwd",
 				"/download/" + id + "/%2e%2e%2f%2e%2e%2fetc%2fpasswd",
 				"/download/" + id + "/epub/extra",
-				"/download/" + id + "/epub/../../etc/passwd",
 				"/download/" + id + "/" + files2path(in, book),
 				"/download/" + id,
 				"/download/",
@@ -488,11 +526,18 @@ var _ = Describe("OPDS extension", func() {
 				"/download/" + id + "/epub%00.txt",
 			} {
 				r := download(p)
-				Expect(r.status).To(BeElementOf(
-					http.StatusNotFound,
-					http.StatusBadRequest,
-					http.StatusMovedPermanently,
-				), p)
+				Expect(r.status).To(Equal(http.StatusNotFound), p)
+				Expect(r.body).NotTo(Equal(epubBody), p)
+			}
+			// The client cleans these before the request leaves, so the
+			// server sees an ordinary path; none may reach the file or the
+			// filesystem.
+			for _, p := range []string{
+				"/download/" + id + "/../../../etc/passwd",
+				"/download/" + id + "/epub/../../etc/passwd",
+			} {
+				r := download(p)
+				Expect(r.status).NotTo(Equal(http.StatusOK), p)
 				Expect(r.String()).NotTo(ContainSubstring("root:"), p)
 			}
 		})
@@ -511,12 +556,113 @@ var _ = Describe("OPDS extension", func() {
 			Expect(download("/download/" + itoa(book.id) + "/epub").status).
 				To(Equal(http.StatusNotFound))
 		})
+
+		It("stops serving a file whose absence the library confirmed", func() {
+			in.exec(`UPDATE media_files SET missing_since = ?,
+				missing_confirmed_at = ? WHERE id = ?`,
+				timeNow(), timeNow(), files["epub"])
+			id := itoa(book.id)
+			Expect(download("/download/" + id + "/epub").status).
+				To(Equal(http.StatusNotFound))
+			Expect(download("/recent").String()).NotTo(ContainSubstring(
+				"/opds/download/" + id + "/epub"))
+		})
+	})
+
+	Describe("installing", func() {
+		It("waits for approval, and runs nothing until then", func() {
+			raw := startInstance(instanceOptions{
+				enabled: true, settleOn: "needs_approval",
+			})
+			items, _ := raw.extensions()
+			Expect(items).To(HaveLen(1))
+			Expect(items[0].Requested.viewNames()).NotTo(BeEmpty())
+			Expect(items[0].Granted.viewNames()).To(BeEmpty())
+
+			anon := raw.opds("/", adminEmail, adminPassword)
+			Expect(anon.status).To(BeElementOf(
+				http.StatusNotFound, http.StatusFound))
+
+			r := raw.do(reqOpts{
+				method: http.MethodPost, bearer: raw.adminToken(),
+				path: "/api/v1/extensions/" + extName + "/approve",
+			})
+			Expect(r.status).To(Equal(http.StatusOK), r.String())
+			Expect(raw.waitState("running")).To(Succeed())
+			user := raw.newUser()
+			Expect(raw.opds("/", user.email, user.newToken(raw)).status).
+				To(Equal(http.StatusOK))
+		})
+
+		It("narrows a grant wider than the manifest on approval", func() {
+			wide := startInstance(instanceOptions{
+				enabled: true, settleOn: "running",
+				grants: &grantSet{
+					mounts: []string{"/opds"},
+					views: []string{
+						"users",
+						"user_logins",
+						"books",
+						"book_series",
+						"authors",
+						"book_contributions",
+						"book_files",
+						"artists",
+					},
+					services: []string{"serve_file", "serve_poster"},
+				},
+			})
+			items, _ := wide.extensions()
+			Expect(items[0].Granted.viewNames()).To(ContainElement("artists"))
+
+			r := wide.do(reqOpts{
+				method: http.MethodPost, bearer: wide.adminToken(),
+				path: "/api/v1/extensions/" + extName + "/approve",
+			})
+			Expect(r.status).To(Equal(http.StatusOK), r.String())
+			items, _ = wide.extensions()
+			Expect(items[0].Granted.viewNames()).
+				To(ConsistOf(items[0].Requested.viewNames()))
+		})
+
+		It("refuses a module that does not match its pinned sha256", func() {
+			bad := startInstance(instanceOptions{
+				enabled: true, settleOn: "failed",
+				sha256: strings.Repeat("0", 64),
+			})
+			items, _ := bad.extensions()
+			Expect(items[0].Reason).To(ContainSubstring("sha256"))
+		})
+
+		It("accepts a module that matches its pinned sha256", func() {
+			sum := sha256.Sum256(mustRead(wasmPath()))
+			ok := startInstance(instanceOptions{
+				enabled: true, sha256: hex.EncodeToString(sum[:]),
+			})
+			items, _ := ok.extensions()
+			Expect(items[0].State).To(Equal("running"))
+		})
 	})
 
 	Describe("a stopped extension", func() {
 		It("answers 404 on its mount, credentials or not", func() {
-			off := startInstance(instanceOptions{enabled: false})
-			DeferCleanup(off.stop)
+			// A stopped entry's mount is known from its grants; before any
+			// approval the host has no mount to answer for.
+			off := startInstance(instanceOptions{
+				enabled: false, grants: &grantSet{
+					mounts: []string{"/opds"},
+					views: []string{
+						"users",
+						"user_logins",
+						"books",
+						"book_series",
+						"authors",
+						"book_contributions",
+						"book_files",
+					},
+					services: []string{"serve_file", "serve_poster"},
+				},
+			})
 
 			state := decode[struct {
 				Items []struct {
@@ -538,10 +684,8 @@ var _ = Describe("OPDS extension", func() {
 				Expect(signedIn.status).To(Equal(http.StatusNotFound), p)
 			}
 
-			// Without a session the host's own middleware answers first.
-			anon := off.opds("/", adminEmail, adminPassword)
-			Expect(anon.status).To(Equal(http.StatusFound))
-			Expect(anon.header.Get("Location")).To(HavePrefix("/login"))
+			Expect(off.opds("/", adminEmail, adminPassword).status).
+				To(Equal(http.StatusNotFound))
 		})
 	})
 })

@@ -31,13 +31,19 @@ const (
 	bootAttempts  = 3
 )
 
-var grantedViews = []string{
-	"users", "user_logins", "books", "book_series", "authors",
-	"book_contributions", "book_files",
-}
-
 type instanceOptions struct {
 	enabled bool
+	// grants are written into the entry by hand; empty leaves the entry
+	// ungranted, which is how an install starts.
+	grants *grantSet
+	// settleOn names the state to stop at. Empty means the install flow:
+	// needs_approval, approve, running (or disabled for a stopped entry).
+	settleOn string
+	sha256   string
+}
+
+type grantSet struct {
+	mounts, views, services []string
 }
 
 type instance struct {
@@ -73,11 +79,11 @@ func wasmPath() string {
 func startInstance(opts instanceOptions) *instance {
 	GinkgoHelper()
 	Expect(os.MkdirAll(scratchRoot, 0o750)).To(Succeed())
-	dir, err := os.MkdirTemp(scratchRoot, "run-")
-	Expect(err).NotTo(HaveOccurred())
 
 	var lastErr error
 	for range bootAttempts {
+		dir, err := os.MkdirTemp(scratchRoot, "run-")
+		Expect(err).NotTo(HaveOccurred())
 		in := &instance{
 			dir: dir,
 			client: &http.Client{
@@ -89,15 +95,19 @@ func startInstance(opts instanceOptions) *instance {
 		}
 		in.nextIP.Store(1)
 		in.nextID.Store(100)
+		DeferCleanup(func() {
+			in.stop()
+			Expect(os.RemoveAll(dir)).To(Succeed())
+		})
 		lastErr = in.boot(opts)
 		if lastErr == nil {
-			lastErr = in.waitSettled(opts)
+			lastErr = in.settle(opts)
 		}
 		if lastErr == nil {
-			DeferCleanup(func() { Expect(os.RemoveAll(dir)).To(Succeed()) })
 			return in
 		}
 		in.stop()
+		Expect(os.RemoveAll(dir)).To(Succeed())
 	}
 	Fail(fmt.Sprintf("streamline did not boot: %v", lastErr))
 	return nil
@@ -109,6 +119,19 @@ func (in *instance) config(port int, opts instanceOptions) []byte {
 		p := filepath.Join(in.dir, "lib", name)
 		Expect(os.MkdirAll(p, 0o750)).To(Succeed())
 		return p
+	}
+	entry := map[string]any{
+		"name":    extName,
+		"source":  wasmPath(),
+		"enabled": opts.enabled,
+	}
+	if opts.sha256 != "" {
+		entry["sha256"] = opts.sha256
+	}
+	if g := opts.grants; g != nil {
+		entry["grants"] = map[string]any{
+			"mounts": g.mounts, "views": g.views, "services": g.services,
+		}
 	}
 	cfg := map[string]any{
 		"data_dir": filepath.Join(in.dir, "data"),
@@ -134,16 +157,7 @@ func (in *instance) config(port int, opts instanceOptions) []byte {
 			"music_path":     lib("music"),
 			"download_path":  lib("downloads"),
 		},
-		"extensions": []any{map[string]any{
-			"name":    extName,
-			"source":  wasmPath(),
-			"enabled": opts.enabled,
-			"grants": map[string]any{
-				"mounts":   []string{"/opds"},
-				"views":    grantedViews,
-				"services": []string{"serve_file", "serve_poster"},
-			},
-		}},
+		"extensions": []any{entry},
 	}
 	b, err := json.Marshal(cfg)
 	Expect(err).NotTo(HaveOccurred())
@@ -155,7 +169,9 @@ func (in *instance) boot(opts instanceOptions) error {
 	port := freePort()
 	in.base = fmt.Sprintf("http://127.0.0.1:%d", port)
 	cfgPath := filepath.Join(in.dir, "config.yaml")
-	Expect(os.WriteFile(cfgPath, in.config(port, opts), 0o600)).To(Succeed())
+	if err := os.WriteFile(cfgPath, in.config(port, opts), 0o600); err != nil {
+		return err
+	}
 
 	bin := os.Getenv("STREAMLINE_BIN")
 	cmd := exec.Command(bin, "--config", cfgPath)
@@ -468,32 +484,98 @@ func files2path(in *instance, b *seededBook) string {
 	return strings.TrimPrefix(p, "/")
 }
 
+func (in *instance) settle(opts instanceOptions) error {
+	GinkgoHelper()
+	if opts.settleOn != "" {
+		return in.waitState(opts.settleOn)
+	}
+	if !opts.enabled {
+		return in.waitState("disabled")
+	}
+	if opts.grants == nil {
+		if err := in.waitState("needs_approval"); err != nil {
+			return err
+		}
+		r := in.do(reqOpts{
+			method: http.MethodPost, bearer: in.adminToken(),
+			path: "/api/v1/extensions/" + extName + "/approve",
+		})
+		if r.status != http.StatusOK {
+			return fmt.Errorf("approve answered %d: %s", r.status, r)
+		}
+	}
+	return in.waitState("running")
+}
+
 // The manager reports `starting` while it loads the modules after boot, and
 // /health answers before that is over.
-func (in *instance) waitSettled(opts instanceOptions) error {
+func (in *instance) waitState(want string) error {
 	GinkgoHelper()
-	want := "running"
-	if !opts.enabled {
-		want = "disabled"
-	}
 	var last string
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		r := in.do(reqOpts{path: "/api/v1/extensions", bearer: in.adminToken()})
-		var list struct {
-			Items []struct {
-				State  string `json:"state"`
-				Reason string `json:"reason"`
-			} `json:"items"`
-		}
-		if r.status == http.StatusOK && json.Unmarshal(r.body, &list) == nil &&
-			len(list.Items) == 1 {
-			last = list.Items[0].State + " " + list.Items[0].Reason
-			if list.Items[0].State == want {
+		items, ok := in.extensions()
+		if ok && len(items) == 1 {
+			last = items[0].State + " " + items[0].Reason
+			if items[0].State == want {
 				return nil
 			}
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 	return fmt.Errorf("extension never became %s: %s", want, last)
+}
+
+type permissions struct {
+	Mounts []struct {
+		Path string `json:"path"`
+	} `json:"mounts"`
+	Views []struct {
+		Name string `json:"name"`
+	} `json:"views"`
+	Services []string `json:"services"`
+}
+
+func (p permissions) viewNames() []string {
+	out := make([]string, 0, len(p.Views))
+	for _, v := range p.Views {
+		out = append(out, v.Name)
+	}
+	return out
+}
+
+func (p permissions) mountPrefixes() []string {
+	out := make([]string, 0, len(p.Mounts))
+	for _, m := range p.Mounts {
+		out = append(out, m.Path)
+	}
+	return out
+}
+
+type extensionState struct {
+	Name      string      `json:"name"`
+	State     string      `json:"state"`
+	Reason    string      `json:"reason"`
+	Version   string      `json:"version"`
+	Requested permissions `json:"requested"`
+	Granted   permissions `json:"granted"`
+}
+
+func (in *instance) extensions() ([]extensionState, bool) {
+	GinkgoHelper()
+	r := in.do(reqOpts{path: "/api/v1/extensions", bearer: in.adminToken()})
+	var list struct {
+		Items []extensionState `json:"items"`
+	}
+	if r.status != http.StatusOK || json.Unmarshal(r.body, &list) != nil {
+		return nil, false
+	}
+	return list.Items, true
+}
+
+func mustRead(p string) []byte {
+	GinkgoHelper()
+	b, err := os.ReadFile(p)
+	Expect(err).NotTo(HaveOccurred())
+	return b
 }
