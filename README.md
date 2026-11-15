@@ -20,7 +20,7 @@ It starts with **no tokens**: nothing from the OPDS server that used to be built
 
 ## Development
 
-The extension SDK lives in the Streamline repository (`extensions/sdk`) and has no published version yet, so `go.mod` replaces it with `../streamline/extensions/sdk`. Keep a Streamline checkout beside this one, named `streamline`. Until the SDK is tagged and the `replace` dropped, the workflows in `.github/workflows` cannot resolve it on GitHub and fail there; they are written for the day it can.
+The extension SDK is the `github.com/datahearth/streamline/extensions/sdk` module, in the Streamline repository. It has no tagged release yet, so `go.mod` pins it to a commit (a pseudo-version); move it with `go get github.com/datahearth/streamline/extensions/sdk@<commit>`. To build against a local Streamline checkout instead, use a `go.work` that is not committed: `go work init . ./e2e && go work use ../streamline/extensions/sdk`.
 
 ```sh
 task build   # opds.wasm
