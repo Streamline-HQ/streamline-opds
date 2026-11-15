@@ -13,13 +13,18 @@ import (
 
 const recentLimit = 50
 
-const openSearchDescription = `<?xml version="1.0" encoding="UTF-8"?>
+// openSearchDescription points a reader at the search under base, which
+// Streamline serves the extension at; a base is plain path characters, so it
+// needs no XML escaping.
+func openSearchDescription(base string) string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
 <OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
   <ShortName>Streamline</ShortName>
   <Description>Search the Streamline ebook catalog</Description>
-  <Url type="` + acquisitionType + `" template="/opds/search?q={searchTerms}"/>
+  <Url type="` + acquisitionType + `" template="` + base + `/search?q={searchTerms}"/>
 </OpenSearchDescription>
 `
+}
 
 // ebookLadder is the format ranking a profile uses, best first.
 var ebookLadder = []string{"EPUB", "AZW3", "MOBI", "PDF", "CBZ", "CBR"}
@@ -53,21 +58,25 @@ func ebookContentType(format string) string {
 	}
 }
 
-func root() sdk.Response {
+func root(base string) sdk.Response {
 	resp, _ := render(kindNavigation, &feed{
 		ID:    "urn:streamline:opds:root",
 		Title: "Streamline",
 		Links: []link{
-			selfLink("/opds", kindNavigation),
-			{Rel: "start", Href: "/opds", Type: navigationType},
-			{Rel: "search", Href: "/opds/search.xml", Type: openSearchType},
+			selfLink(base, kindNavigation),
+			{Rel: "start", Href: base, Type: navigationType},
+			{Rel: "search", Href: base + "/search.xml", Type: openSearchType},
 		},
 		Entries: []entry{
 			{
 				ID:    "urn:streamline:opds:authors",
 				Title: "Authors",
 				Links: []link{
-					{Rel: "subsection", Href: "/opds/authors", Type: navigationType},
+					{
+						Rel:  "subsection",
+						Href: base + "/authors",
+						Type: navigationType,
+					},
 				},
 			},
 			{
@@ -75,7 +84,7 @@ func root() sdk.Response {
 				Title: "Recently added",
 				Links: []link{{
 					Rel:  "http://opds-spec.org/sort/new",
-					Href: "/opds/recent",
+					Href: base + "/recent",
 					Type: acquisitionType,
 				}},
 			},
@@ -84,7 +93,7 @@ func root() sdk.Response {
 	return resp
 }
 
-func authors() (sdk.Response, error) {
+func authors(base string) (sdk.Response, error) {
 	rows, err := query(`SELECT a.id, a.name, a.sort_name, MAX(b.updated_at)
 		FROM streamline_authors a
 		JOIN streamline_book_contributions c
@@ -106,8 +115,8 @@ func authors() (sdk.Response, error) {
 		ID:    "urn:streamline:opds:authors",
 		Title: "Authors",
 		Links: []link{
-			selfLink("/opds/authors", kindNavigation),
-			{Rel: "start", Href: "/opds", Type: navigationType},
+			selfLink(base+"/authors", kindNavigation),
+			{Rel: "start", Href: base, Type: navigationType},
 		},
 	}
 	for _, r := range rows {
@@ -118,7 +127,7 @@ func authors() (sdk.Response, error) {
 			Updated: atomTime(updated),
 			Links: []link{{
 				Rel:  "subsection",
-				Href: fmt.Sprintf("/opds/authors/%d", asInt(r[0])),
+				Href: base + fmt.Sprintf("/authors/%d", asInt(r[0])),
 				Type: acquisitionType,
 			}},
 		})
@@ -127,7 +136,7 @@ func authors() (sdk.Response, error) {
 	return render(kindNavigation, f)
 }
 
-func authorBooks(id uint32) (sdk.Response, error) {
+func authorBooks(base string, id uint32) (sdk.Response, error) {
 	rows, err := query("SELECT name FROM streamline_authors WHERE id = ?", id)
 	if err != nil {
 		return sdk.Response{}, err
@@ -145,14 +154,15 @@ func authorBooks(id uint32) (sdk.Response, error) {
 		return sdk.Response{}, err
 	}
 	return acquisition(
+		base,
 		fmt.Sprintf("urn:streamline:author:%d", id),
 		asString(rows[0][0]),
-		fmt.Sprintf("/opds/authors/%d", id),
+		base+fmt.Sprintf("/authors/%d", id),
 		books,
 	)
 }
 
-func recent() (sdk.Response, error) {
+func recent(base string) (sdk.Response, error) {
 	latest := func(agg string) string {
 		return `(SELECT ` + agg + ` FROM streamline_book_files f
 			WHERE f.book_id = b.id AND f.slot = 'ebook')`
@@ -169,24 +179,26 @@ func recent() (sdk.Response, error) {
 		return sdk.Response{}, err
 	}
 	return acquisition(
-		"urn:streamline:opds:recent", "Recently added", "/opds/recent", books,
+		base,
+		"urn:streamline:opds:recent", "Recently added", base+"/recent", books,
 	)
 }
 
-func searchDescription() sdk.Response {
+func searchDescription(base string) sdk.Response {
 	return sdk.Response{
 		Status:  200,
 		Headers: map[string][]string{"Content-Type": {openSearchType}},
-		Body:    []byte(openSearchDescription),
+		Body:    []byte(openSearchDescription(base)),
 	}
 }
 
-func search(rawQuery string) (sdk.Response, error) {
+func search(base, rawQuery string) (sdk.Response, error) {
 	vals, _ := url.ParseQuery(rawQuery)
 	q := vals.Get("q")
 	if q == "" {
 		return acquisition(
-			"urn:streamline:opds:search", "Search", "/opds/search", nil,
+			base,
+			"urn:streamline:opds:search", "Search", base+"/search", nil,
 		)
 	}
 	pattern := "%" + likeEscaper.Replace(q) + "%"
@@ -202,9 +214,10 @@ func search(rawQuery string) (sdk.Response, error) {
 		return sdk.Response{}, err
 	}
 	return acquisition(
+		base,
 		"urn:streamline:opds:search",
 		"Search: "+q,
-		"/opds/search?q="+url.QueryEscape(q),
+		base+"/search?q="+url.QueryEscape(q),
 		books,
 	)
 }
@@ -292,17 +305,17 @@ func findBooks(where string, args []any, orderBy string) ([]*book, error) {
 	return books, nil
 }
 
-func acquisition(id, title, self string, books []*book) (sdk.Response, error) {
+func acquisition(base, id, title, self string, books []*book) (sdk.Response, error) {
 	f := &feed{
 		ID:    id,
 		Title: title,
 		Links: []link{
 			selfLink(self, kindAcquisition),
-			{Rel: "start", Href: "/opds", Type: navigationType},
+			{Rel: "start", Href: base, Type: navigationType},
 		},
 	}
 	for _, bk := range books {
-		e := bookEntry(bk)
+		e := bookEntry(base, bk)
 		if e == nil {
 			continue
 		}
@@ -312,7 +325,7 @@ func acquisition(id, title, self string, books []*book) (sdk.Response, error) {
 	return render(kindAcquisition, f)
 }
 
-func bookEntry(bk *book) *entry {
+func bookEntry(base string, bk *book) *entry {
 	best := bestFile(bk.files)
 	if best == nil {
 		return nil
@@ -325,13 +338,13 @@ func bookEntry(bk *book) *entry {
 			{
 				Rel: relAcquisition,
 				Href: fmt.Sprintf(
-					"/opds/download/%d/%s", bk.id, strings.ToLower(best.format),
+					base+"/download/%d/%s", bk.id, strings.ToLower(best.format),
 				),
 				Type: ebookContentType(best.format),
 			},
 			{
 				Rel:  relImage,
-				Href: fmt.Sprintf("/opds/cover/%d", bk.id),
+				Href: base + fmt.Sprintf("/cover/%d", bk.id),
 				Type: "image/jpeg",
 			},
 		},

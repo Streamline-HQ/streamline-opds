@@ -1,4 +1,4 @@
-github.com/datahearth/streamline/extensions/sdk v0.0.0-20261115214506-25f633117c00 h1:tXH5tJSoElfckYXLp1nF/greVOdbxwmAKh50D1IQJkg=
-github.com/datahearth/streamline/extensions/sdk v0.0.0-20261115214506-25f633117c00/go.mod h1:VN49UqMV2wD/NHnAGxJh09QdqKbhbi0nZQjOe8vnBCA=
+github.com/datahearth/streamline/extensions/sdk v0.0.0-20261115232852-feef5792fa96 h1:Qn+/jcxHlbUSNBE4e3+30zJlAEzRYJqG0sFszpxD9ig=
+github.com/datahearth/streamline/extensions/sdk v0.0.0-20261115232852-feef5792fa96/go.mod h1:VN49UqMV2wD/NHnAGxJh09QdqKbhbi0nZQjOe8vnBCA=
 github.com/extism/go-pdk v1.1.3 h1:hfViMPWrqjN6u67cIYRALZTZLk/enSPpNKa+rZ9X2SQ=
 github.com/extism/go-pdk v1.1.3/go.mod h1:Gz+LIU/YCKnKXhgge8yo5Yu1F/lbv7KtKFkiCSzW/P4=

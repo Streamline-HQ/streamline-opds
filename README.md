@@ -1,8 +1,10 @@
 # streamline-opds
 
-OPDS 1.2 catalog for [Streamline](https://github.com/DataHearth/streamline), as an extension: a WebAssembly module the server loads and mounts at `/opds`. Ebooks only. The user guide is [docs/wiki/OPDS.md](docs/wiki/OPDS.md).
+OPDS 1.2 catalog for [Streamline](https://github.com/DataHearth/streamline), as an extension: a WebAssembly module the server loads and serves at `/extensions/opds`. Ebooks only. The user guide is [docs/wiki/OPDS.md](docs/wiki/OPDS.md).
 
 ## Install
+
+Version 2 needs a Streamline that serves extensions at `/extensions/<name>` (extension contract version 2); version 1 ran on the release before it, at `/opds`.
 
 Add an entry under `extensions` in Streamline's config, with the URL of `opds.wasm` on a release of this repository and the SHA-256 the release notes name (it is also in `opds.wasm.sha256`):
 
@@ -14,7 +16,7 @@ extensions:
     enabled: true
 ```
 
-Then approve it in Settings → Extensions. The approval screen lists what it asks for: the `/opds` mount, which checks credentials itself; read access to users' names and email addresses and to the book library (books, series, authors, who made each book, which files exist); and the permissions to send a book file and a book picture to a reader. It asks for no folder, no `ffmpeg` and no library scan.
+Then approve it in Settings → Extensions. The approval screen lists what it asks for: the `/` mount (all of `/extensions/opds`), which checks credentials itself; read access to users' names and email addresses and to the book library (books, series, authors, who made each book, which files exist); and the permissions to send a book file and a book picture to a reader. It asks for no folder, no `ffmpeg` and no library scan.
 
 It starts with **no tokens**: nothing from the OPDS server that used to be built in is carried over. Each account creates its own under Account → Players & readers.
 
@@ -28,7 +30,7 @@ task lint    # golangci-lint: the guest for wasip1, the end-to-end suite for the
 task test    # the end-to-end suite
 ```
 
-`task test` boots a real Streamline binary with `opds.wasm` configured as an extension, in a scratch directory and on a free port, and drives `/opds` over HTTP. Name the binary with `STREAMLINE_BIN`:
+`task test` boots a real Streamline binary with `opds.wasm` configured as an extension, in a scratch directory and on a free port, and drives `/extensions/opds` over HTTP. Name the binary with `STREAMLINE_BIN`:
 
 ```sh
 STREAMLINE_BIN=../streamline/streamline task test

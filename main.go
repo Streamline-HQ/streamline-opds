@@ -17,9 +17,9 @@ func main() {}
 func manifest() int32 {
 	return sdk.WriteManifest(sdk.Manifest{
 		Name:          "opds",
-		Version:       "1.0.0",
-		StreamlineAPI: 1,
-		Mounts:        []sdk.Mount{{Prefix: "/opds", Auth: "self"}},
+		Version:       "2.0.0",
+		StreamlineAPI: sdk.APIVersion,
+		Mounts:        []sdk.Mount{{Prefix: "/", Auth: "self"}},
 		Views: []string{
 			"users", "user_logins", "books", "book_series", "authors",
 			"book_contributions", "book_files",
@@ -29,7 +29,7 @@ func manifest() int32 {
 			ID:       "token",
 			Kind:     "credential",
 			Title:    "OPDS",
-			Mount:    "/opds",
+			Mount:    "/",
 			Username: "email",
 		}},
 	})
@@ -76,24 +76,25 @@ func route(r sdk.Request) sdk.Response {
 }
 
 func catalog(r sdk.Request) (sdk.Response, error) {
+	base := r.BasePath
 	switch r.Path {
 	case "", "/":
-		return root(), nil
+		return root(base), nil
 	case "/authors":
-		return authors()
+		return authors(base)
 	case "/recent":
-		return recent()
+		return recent(base)
 	case "/search.xml":
-		return searchDescription(), nil
+		return searchDescription(base), nil
 	case "/search":
-		return search(r.Query)
+		return search(base, r.Query)
 	}
 	if rest, ok := strings.CutPrefix(r.Path, "/authors/"); ok {
 		id, ok := parseID(rest)
 		if !ok {
 			return notFound(), nil
 		}
-		return authorBooks(id)
+		return authorBooks(base, id)
 	}
 	if rest, ok := strings.CutPrefix(r.Path, "/cover/"); ok {
 		id, ok := parseID(rest)

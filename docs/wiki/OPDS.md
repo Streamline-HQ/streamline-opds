@@ -18,7 +18,7 @@ Streamline refuses a module whose bytes do not match the checksum. A new entry i
 
 | Asks for | Why |
 | --- | --- |
-| The `/opds` mount, checking credentials itself | Reader apps send HTTP Basic, not a Streamline session |
+| The `/` mount (all of `/extensions/opds`), checking credentials itself | Reader apps send HTTP Basic, not a Streamline session |
 | See user names and roles; See users' email addresses | To find the account a reader signs in as |
 | Read the book library, the book series, book authors, who made each book | To build the catalogue |
 | Read which book files exist | To list only books with an ebook and find the file to send |
@@ -34,7 +34,7 @@ It starts with **no tokens**. Nothing from the OPDS server that used to be built
 1. Sign in to Streamline and open **Account → Players & readers**.
 2. On the **OPDS** card, create a token. It is shown **once**; copy it then. Creating another replaces it, and the old one stops working at once.
 3. In the reader app, add a catalogue with:
-   - URL: `https://your-streamline.example/opds`
+   - URL: `https://your-streamline.example/extensions/opds`
    - User name: your Streamline email address
    - Password: the token
 
@@ -44,13 +44,13 @@ Disabling the token on the card, or deleting the account, ends access on every p
 
 - **Authors**: everyone credited as an author or writer on a book with an ebook, and each one's books.
 - **Recently added**: the 50 newest ebooks.
-- **Search**: the OpenSearch description is at `/opds/search.xml`; a query matches titles and author names.
+- **Search**: the OpenSearch description is at `/extensions/opds/search.xml`; a query matches titles and author names.
 
-A book with several formats links the best one (EPUB, then AZW3, MOBI, PDF, CBZ, CBR); a download for another format a book holds is `/opds/download/<book id>/<format>`. Anything else answers `404`, and a book's file is chosen from the library by its id, never from a path the client sends.
+A book with several formats links the best one (EPUB, then AZW3, MOBI, PDF, CBZ, CBR); a download for another format a book holds is `/extensions/opds/download/<book id>/<format>`. Anything else answers `404`, and a book's file is chosen from the library by its id, never from a path the client sends.
 
 ## When it is off
 
-A disabled or failed extension's `/opds` answers `404` to a signed-in browser, and sends everyone else to the sign-in page, as any Streamline path.
+A disabled or failed extension's `/extensions/opds` answers `404` to everyone, signed in or not.
 
 ## Development
 

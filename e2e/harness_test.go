@@ -392,7 +392,7 @@ func (a *account) newToken(in *instance) string {
 func (in *instance) opds(path, user, pass string) reply {
 	GinkgoHelper()
 	return in.do(reqOpts{
-		path: "/opds" + path, basic: [2]string{user, pass}, useAuth: true,
+		path: "/extensions/opds" + path, basic: [2]string{user, pass}, useAuth: true,
 	})
 }
 

@@ -165,9 +165,9 @@ var _ = Describe("OPDS extension", func() {
 			u := in.newUser()
 			secret := u.newToken(in)
 			for _, c := range []reqOpts{
-				{path: "/opds/cards/token"},
+				{path: "/extensions/opds/cards/token"},
 				{
-					method: http.MethodPost, path: "/opds/cards/token",
+					method: http.MethodPost, path: "/extensions/opds/cards/token",
 					basic: [2]string{u.email, secret}, useAuth: true,
 				},
 			} {
@@ -206,7 +206,7 @@ var _ = Describe("OPDS extension", func() {
 				To(ContainSubstring("kind=navigation"))
 			Expect(parseFeed(r).titles()).
 				To(ContainElements("Authors", "Recently added"))
-			Expect(r.String()).To(ContainSubstring("/opds/search.xml"))
+			Expect(r.String()).To(ContainSubstring("/extensions/opds/search.xml"))
 
 			desc := get("/search.xml")
 			Expect(desc.status).To(Equal(http.StatusOK))
@@ -227,8 +227,8 @@ var _ = Describe("OPDS extension", func() {
 					href = e.Links[0].Href
 				}
 			}
-			Expect(href).To(HavePrefix("/opds/authors/"))
-			books := get(strings.TrimPrefix(href, "/opds"))
+			Expect(href).To(HavePrefix("/extensions/opds/authors/"))
+			books := get(strings.TrimPrefix(href, "/extensions/opds"))
 			Expect(books.status).To(Equal(http.StatusOK))
 			Expect(parseFeed(books).titles()).To(ContainElement("Dune Messiah"))
 		})
@@ -242,7 +242,7 @@ var _ = Describe("OPDS extension", func() {
 			Expect(feed.titles()).To(ContainElement("Dune Messiah"))
 			Expect(feed.titles()).NotTo(ContainElement("Audio Only Tale"))
 			Expect(r.String()).To(ContainSubstring(
-				"/opds/download/" + itoa(dune.id) + "/epub"))
+				"/extensions/opds/download/" + itoa(dune.id) + "/epub"))
 		})
 
 		It("searches titles and authors, wildcards as text", func() {
@@ -274,7 +274,7 @@ var _ = Describe("OPDS extension", func() {
 				To(ContainSubstring(`filename="Dune Messiah - Frank Herbert.epub"`))
 
 			part := in.do(reqOpts{
-				path:    "/opds/download/" + itoa(dune.id) + "/epub",
+				path:    "/extensions/opds/download/" + itoa(dune.id) + "/epub",
 				basic:   [2]string{reader.email, secret},
 				useAuth: true,
 				headers: map[string]string{"Range": "bytes=0-1"},
@@ -285,7 +285,7 @@ var _ = Describe("OPDS extension", func() {
 			ranged := func(spec string) reply {
 				GinkgoHelper()
 				return in.do(reqOpts{
-					path:    "/opds/download/" + itoa(dune.id) + "/epub",
+					path:    "/extensions/opds/download/" + itoa(dune.id) + "/epub",
 					basic:   [2]string{reader.email, secret},
 					useAuth: true,
 					headers: map[string]string{"Range": spec},
@@ -308,7 +308,7 @@ var _ = Describe("OPDS extension", func() {
 
 		It("refuses a write", func() {
 			r := in.do(reqOpts{
-				method: http.MethodPost, path: "/opds/recent",
+				method: http.MethodPost, path: "/extensions/opds/recent",
 				basic: [2]string{reader.email, secret}, useAuth: true,
 			})
 			Expect(r.status).To(Equal(http.StatusMethodNotAllowed))
@@ -354,7 +354,7 @@ var _ = Describe("OPDS extension", func() {
 
 		It("asks for credentials on every path when none are sent", func() {
 			for _, p := range paths {
-				r := in.do(reqOpts{path: "/opds" + p})
+				r := in.do(reqOpts{path: "/extensions/opds" + p})
 				Expect(r.status).To(Equal(http.StatusUnauthorized), p)
 				Expect(r.header.Get("WWW-Authenticate")).To(HavePrefix("Basic"), p)
 			}
@@ -384,7 +384,8 @@ var _ = Describe("OPDS extension", func() {
 				"Bearer " + secret, "Basic", "Basic !!!", "Basic Zm9v",
 			} {
 				r := in.do(reqOpts{
-					path: "/opds/", headers: map[string]string{"Authorization": h},
+					path:    "/extensions/opds/",
+					headers: map[string]string{"Authorization": h},
 				})
 				Expect(r.status).To(Equal(http.StatusUnauthorized), h)
 			}
@@ -565,7 +566,7 @@ var _ = Describe("OPDS extension", func() {
 			Expect(download("/download/" + id + "/epub").status).
 				To(Equal(http.StatusNotFound))
 			Expect(download("/recent").String()).NotTo(ContainSubstring(
-				"/opds/download/" + id + "/epub"))
+				"/extensions/opds/download/" + id + "/epub"))
 		})
 	})
 
@@ -598,7 +599,7 @@ var _ = Describe("OPDS extension", func() {
 			wide := startInstance(instanceOptions{
 				enabled: true, settleOn: "running",
 				grants: &grantSet{
-					mounts: []string{"/opds"},
+					mounts: []string{"/"},
 					views: []string{
 						"users",
 						"user_logins",
@@ -650,7 +651,7 @@ var _ = Describe("OPDS extension", func() {
 			// approval the host has no mount to answer for.
 			off := startInstance(instanceOptions{
 				enabled: false, grants: &grantSet{
-					mounts: []string{"/opds"},
+					mounts: []string{"/"},
 					views: []string{
 						"users",
 						"user_logins",
@@ -674,7 +675,7 @@ var _ = Describe("OPDS extension", func() {
 			Expect(state.Items).To(HaveLen(1))
 			Expect(state.Items[0].State).To(Equal("disabled"))
 
-			for _, p := range []string{"/opds/", "/opds/download/1/epub"} {
+			for _, p := range []string{"/extensions/opds/", "/extensions/opds/download/1/epub"} {
 				signedIn := off.do(reqOpts{
 					path: p,
 					headers: map[string]string{
