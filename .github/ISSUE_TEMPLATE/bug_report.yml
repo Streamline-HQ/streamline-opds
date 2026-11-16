@@ -1,0 +1,44 @@
+name: Bug report
+description: Something is broken
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "The extension version (the release you installed) and `streamline --version`."
+      placeholder: 2.0.0 on Streamline 3.3.0
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Reader app
+      description: Which reader app and version, on which device.
+      placeholder: KOReader 2026.10 on a Kobo Libra 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Streamline's log around the request (ideally with `log.app.level: debug`), or the reader's own log. Redact tokens.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: >
+        The feed URL the reader asked for, screenshots, what another OPDS server does with the same app.
