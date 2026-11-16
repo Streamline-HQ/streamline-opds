@@ -35,6 +35,7 @@ Streamline loads `opds.wasm` and serves it at `/extensions/opds`. Readers such a
 - [Development](#development)
 - [Releasing](#releasing)
 - [Contributing](#contributing)
+- [Streamline repositories](#streamline-repositories)
 - [License](#license)
 
 ## Features
@@ -127,7 +128,7 @@ The extension answers only `GET`, and anything else gets `405`. A path that does
 - **Fails closed.** A disabled, unapproved or failed extension answers `404` to everyone, signed in or not.
 - **Sandboxed.** The module runs in Streamline's WebAssembly runtime. It gets no folder, and its data access is limited to the approved list above.
 
-To report a vulnerability, open a [private security advisory](https://github.com/Streamline-HQ/streamline-opds-ext/security/advisories/new). Do not open a public issue for it.
+To report a vulnerability, open a [private security advisory](https://github.com/Streamline-HQ/streamline-opds-ext/security/advisories/new) and see [SECURITY.md](SECURITY.md) for what is in scope. Do not open a public issue for it.
 
 ## Operations
 
@@ -239,13 +240,21 @@ Versions follow [Semantic Versioning](https://semver.org). A new major version m
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a PR:
+Bug reports and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+the build/test loop, conventions and the policy on AI-assisted PRs. Participation
+is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-- run `task fmt`, `task lint` and, with a Streamline binary, `task test`;
-- add or update end-to-end specs for any behavior you change;
-- write commit messages in the [Conventional Commits](https://www.conventionalcommits.org) style the history uses (`feat:`, `fix:`, `docs:`, `chore:`…), with `!` for breaking changes.
+Found a vulnerability? Don't open an issue — see [SECURITY.md](SECURITY.md).
 
-Dependencies are kept up to date by [Renovate](renovate.json).
+## Streamline repositories
+
+| Repository | What it is |
+| --- | --- |
+| [streamline](https://github.com/DataHearth/streamline) | The server: media manager, web UI and extension host |
+| [streamline-player](https://github.com/Streamline-HQ/streamline-player) | The player apps (Android TV, desktop, web) and the HLS streaming engine |
+| [streamline-player-ext](https://github.com/Streamline-HQ/streamline-player-ext) | The `player` extension: the API the player apps talk to |
+| [streamline-opds-ext](https://github.com/Streamline-HQ/streamline-opds-ext) | OPDS 1.2 catalog for e-reader apps |
+| [streamline-subsonic-ext](https://github.com/Streamline-HQ/streamline-subsonic-ext) | Subsonic / OpenSubsonic server for music apps |
 
 ## License
 

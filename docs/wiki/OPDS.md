@@ -1,6 +1,6 @@
 # OPDS
 
-An OPDS 1.2 catalog of your ebooks, for e-reader apps (KOReader, Moon+ Reader, Librera, Marvin, Foliate and others). It is an extension: a module Streamline loads, not part of the binary. Ebooks only; audiobooks are not listed. For what an extension is, see [Extensions](Extensions).
+An OPDS 1.2 catalog of your ebooks, for e-reader apps (KOReader, Moon+ Reader, Librera, Marvin, Foliate and others). It is an extension: a module Streamline loads, not part of the binary. Ebooks only; audiobooks are not listed. For what an extension is, see [Extensions](https://github.com/DataHearth/streamline/wiki/Extensions).
 
 ## Adding it
 
