@@ -1,4 +1,4 @@
-module github.com/streamline-hq/streamline-opds
+module github.com/streamline-hq/streamline-opds-ext
 
 go 1.27.3
 

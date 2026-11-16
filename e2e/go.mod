@@ -1,4 +1,4 @@
-module github.com/streamline-hq/streamline-opds/e2e
+module github.com/streamline-hq/streamline-opds-ext/e2e
 
 go 1.27.3
 

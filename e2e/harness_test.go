@@ -26,7 +26,7 @@ const (
 	adminEmail    = "admin@opds.test"
 	adminPassword = "E2e-Admin-Passw0rd!"
 	userPassword  = "E2e-User-Passw0rd!1"
-	scratchRoot   = "/tmp/streamline-opds"
+	scratchRoot   = "/tmp/streamline-opds-ext"
 	extName       = "opds"
 	bootAttempts  = 3
 )

@@ -10,7 +10,7 @@ import (
 
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "streamline-opds end-to-end")
+	RunSpecs(t, "streamline-opds-ext end-to-end")
 }
 
 var shared *instance

@@ -4,12 +4,12 @@ An OPDS 1.2 catalog of your ebooks, for e-reader apps (KOReader, Moon+ Reader, L
 
 ## Adding it
 
-Add an entry to the config, using the URL of `opds.wasm` on a release of [streamline-opds](https://github.com/Streamline-HQ/streamline-opds/releases) and the SHA-256 in that release's notes:
+Add an entry to the config, using the URL of `opds.wasm` on a release of [streamline-opds-ext](https://github.com/Streamline-HQ/streamline-opds-ext/releases) and the SHA-256 in that release's notes:
 
 ```yaml
 extensions:
   - name: opds
-    source: https://github.com/Streamline-HQ/streamline-opds/releases/download/vX.Y.Z/opds.wasm
+    source: https://github.com/Streamline-HQ/streamline-opds-ext/releases/download/vX.Y.Z/opds.wasm
     sha256: <the release's SHA-256>
     enabled: true
 ```
@@ -54,4 +54,4 @@ A disabled or failed extension's `/extensions/opds` answers `404` to everyone, s
 
 ## Development
 
-See the [repository's README](https://github.com/Streamline-HQ/streamline-opds#development).
+See the [repository's README](https://github.com/Streamline-HQ/streamline-opds-ext#development).
