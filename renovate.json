@@ -7,24 +7,120 @@
 	"schedule": [
 		"* 0-6 * * 1"
 	],
-	"minimumReleaseAge": "3 days",
-	"labels": ["dependencies"],
-	"postUpdateOptions": ["gomodTidy"],
+	"prConcurrentLimit": 8,
+	"labels": [
+		"dependencies"
+	],
+	"reviewers": [
+		"DataHearth"
+	],
+	"postUpdateOptions": [
+		"gomodTidy"
+	],
+	"customManagers": [
+		{
+			"customType": "regex",
+			"description": "Go's version, from go.dev's release list: the `go` directive of every go.mod and go.work. nix/go.nix overrides nixpkgs' go_1_NN onto it; renovate-pins.yaml derives the source hash.",
+			"managerFilePatterns": [
+				"/(^|/)go\\.(mod|work)$/"
+			],
+			"matchStrings": [
+				"(?m)^go (?<currentValue>\\d+\\.\\d+\\.\\d+)$"
+			],
+			"depNameTemplate": "go",
+			"datasourceTemplate": "golang-version"
+		}
+	],
 	"packageRules": [
 		{
-			"matchManagers": ["github-actions"],
-			"matchUpdateTypes": ["minor", "patch", "digest"],
-			"groupName": "github actions"
-		},
-		{
-			"matchManagers": ["gomod"],
-			"matchUpdateTypes": ["minor", "patch", "digest"],
+			"matchManagers": [
+				"gomod"
+			],
+			"matchUpdateTypes": [
+				"minor",
+				"patch",
+				"digest"
+			],
 			"groupName": "go modules"
 		},
 		{
-			"description": "The SDK is replaced by a sibling Streamline checkout until it is tagged; there is nothing to bump.",
-			"matchPackageNames": ["github.com/datahearth/streamline/extensions/sdk"],
+			"matchManagers": [
+				"github-actions"
+			],
+			"matchUpdateTypes": [
+				"minor",
+				"patch",
+				"digest"
+			],
+			"groupName": "github actions"
+		},
+		{
+			"matchManagers": [
+				"github-actions"
+			],
+			"addLabels": [
+				"github_actions"
+			]
+		},
+		{
+			"matchUpdateTypes": [
+				"major"
+			],
+			"dependencyDashboardApproval": true
+		},
+		{
+			"description": "The `go` directive belongs to the go regex manager above; left on, gomod would bump it alone in a PR of its own.",
+			"matchManagers": [
+				"gomod"
+			],
+			"matchDepTypes": [
+				"golang",
+				"toolchain"
+			],
+			"enabled": false
+		},
+		{
+			"matchManagers": [
+				"custom.regex"
+			],
+			"matchDepNames": [
+				"go"
+			],
+			"groupName": "go"
+		},
+		{
+			"description": "The PR that moves the locked nixpkgs. It touches no toolchain version: nix/ overrides nixpkgs' package onto the declared patch while the two differ, and .github/workflows/renovate-pins.yaml drops the override's hashes from nix/toolchains.json once the lock catches up. After the major gate on purpose — the later rule wins.",
+			"matchManagers": [
+				"nix"
+			],
+			"groupName": "nix inputs",
+			"dependencyDashboardApproval": false
+		},
+		{
+			"description": "A new Go minor is a new nixpkgs line (go_1_NN), so it waits on the dashboard until nixpkgs packages it; nix/go.nix throws on a line it does not have. Patches open straight away.",
+			"matchManagers": [
+				"custom.regex"
+			],
+			"matchDepNames": [
+				"go"
+			],
+			"matchUpdateTypes": [
+				"minor",
+				"major"
+			],
+			"dependencyDashboardApproval": true
+		},
+		{
+			"description": "The SDK is pinned to the Streamline commit whose extension contract this module is built for; moving it is a decision, not a routine bump.",
+			"matchPackageNames": [
+				"github.com/datahearth/streamline/extensions/sdk"
+			],
 			"enabled": false
 		}
-	]
+	],
+	"vulnerabilityAlerts": {
+		"schedule": [
+			"at any time"
+		]
+	}
 }

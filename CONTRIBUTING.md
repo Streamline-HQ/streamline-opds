@@ -17,6 +17,8 @@ useful things you can send.
 Requires Go (the `go` directive in `go.mod`) and [Task](https://taskfile.dev).
 Running the end-to-end suite also needs a Streamline binary built from a
 version that serves extension contract 2.
+Nix users get Go (at exactly the `go.mod` version), Task and the formatters
+from the flake devshell (`nix develop`, or direnv).
 
 ```bash
 git clone https://github.com/Streamline-HQ/streamline-opds-ext.git

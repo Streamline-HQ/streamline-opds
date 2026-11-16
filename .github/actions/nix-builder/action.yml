@@ -1,0 +1,73 @@
+name: Nix remote builder
+description: >-
+  Points nix at the homelab builder through its untrusted `ci` account by
+  exporting NIX_SSHOPTS and NIX_BUILDER_STORE. Without a key, or when the
+  builder does not answer, it exports nothing, so callers fall back to building
+  on the runner: fork PRs never receive secrets, and a homelab that is down
+  costs runner time rather than a red check that reads like a build failure.
+  On that fallback, a cache token makes the runner substitute what the builder
+  already built from its attic cache.
+inputs:
+  ssh-key:
+    description: Private key of the builder's `ci` account
+    required: false
+    default: ""
+  attic-token:
+    description: Attic token with pull access to the `builder` cache
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Configure the builder
+      shell: bash
+      env:
+        SSH_KEY: ${{ inputs.ssh-key }}
+        ATTIC_TOKEN: ${{ inputs.attic-token }}
+      run: |
+        set -euo pipefail
+
+        # Only on the fallback: a runner whose nix.conf names substituters sends
+        # that list to the builder, which then swaps its own in-cluster attic
+        # address for it and stops substituting from the cache.
+        use_cache() {
+          [ -n "$ATTIC_TOKEN" ] || return 0
+          printf 'machine nix.nerds.casa\npassword %s\n' "$ATTIC_TOKEN" |
+            sudo install -m 600 /dev/stdin /etc/nix/netrc
+          printf '%s\n' \
+            "extra-substituters = https://nix.nerds.casa/builder" \
+            "extra-trusted-public-keys = builder:QmlzOq6fo2gPZ6Vt++ulIK+FCc0r86e8ydE60L9DBys=" |
+            sudo tee -a /etc/nix/nix.conf >/dev/null
+          sudo systemctl restart nix-daemon
+          echo "Substituting from the builder's attic cache"
+        }
+
+        if [ -z "$SSH_KEY" ]; then
+          echo "No builder key: building on the runner"
+          use_cache
+          exit 0
+        fi
+
+        install -d -m 700 ~/.ssh
+        printf '%s\n' "$SSH_KEY" > ~/.ssh/nix-builder
+        chmod 600 ~/.ssh/nix-builder
+        echo "nix-builder.nerds.casa ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBK0AD9BS0GmSgoEVseK4d8cvkoBML+uCyxeMcOjSeN+" \
+          > ~/.ssh/nix-builder-known-hosts
+
+        sshopts="-o UserKnownHostsFile=$HOME/.ssh/nix-builder-known-hosts -o IdentitiesOnly=yes -o IdentityFile=$HOME/.ssh/nix-builder -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15"
+        store="ssh-ng://ci@nix-builder.nerds.casa"
+
+        # A full round trip to the daemon, not just the SSH handshake: a host
+        # that accepts the connection but whose daemon is wedged would
+        # otherwise fail every build after it. `timeout` bounds the case
+        # ConnectTimeout does not — connected, then silent.
+        if ! NIX_SSHOPTS="$sshopts" timeout 30 nix store info --store "$store" >/dev/null; then
+          echo "::warning::Nix builder unreachable: building on the runner"
+          use_cache
+          exit 0
+        fi
+
+        {
+          echo "NIX_SSHOPTS=$sshopts"
+          echo "NIX_BUILDER_STORE=$store"
+        } >> "$GITHUB_ENV"

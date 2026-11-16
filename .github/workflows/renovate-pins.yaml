@@ -1,0 +1,121 @@
+name: Renovate pins
+
+# Upstream decides each toolchain's patch and nixpkgs decides which lines exist.
+# Renovate bumps every copy of a version itself (every `go` directive, from go.dev). What it cannot compute,
+# this job derives on renovate's own branch, before CI reads any of it:
+#
+#   1. a check that the locked nixpkgs has each declared line and that every
+#      copy agrees with its source
+#   2. nix/toolchains.json: the hashes nix/go.nix override nixpkgs' package with,
+#      for every tool whose declared version differs from the locked one —
+#      rebuilt from scratch each run, so a lock that has caught up drops its
+#      entry
+#
+# The push goes out under a GitHub App when one is configured (PINS_APP_CLIENT_ID
+# variable, PINS_APP_PRIVATE_KEY secret; an App with Contents: Read and write and
+# nothing else). A push made with the Actions token starts CI only after someone
+# approves the run, so each derived pin would leave its PR without checks.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - flake.lock
+      - go.mod
+      - e2e/go.mod
+      - go.work
+      - nix/toolchains.json
+permissions:
+  contents: write
+
+jobs:
+  pins:
+    # Only renovate's own branches: on any other PR a stale pin is a mistake
+    # worth seeing, not something to paper over with a commit the author did
+    # not write. The throws in nix/ name the missing line or hash.
+    if: startsWith(github.head_ref, 'renovate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Push token
+        id: app
+        if: vars.PINS_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.PINS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PINS_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ steps.app.outputs.token || github.token }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+
+      - name: Go
+        run: |
+          set -euo pipefail
+
+          go=$(sed -n 's/^go //p' go.mod)
+          fail=0
+          for f in e2e/go.mod go.work; do
+            [ -f "$f" ] || continue
+            v=$(sed -n 's/^go //p' "$f")
+            if [ "$v" != "$go" ]; then
+              echo "::error file=$f::$f declares Go $v, but go.mod says $go"
+              fail=1
+            fi
+          done
+          [ "$fail" -eq 0 ]
+
+          # What the locked nixpkgs ships on a line — empty when it has no such
+          # line, which is the one thing that must wait for nixpkgs. Runs before
+          # anything writes to the tree: `builtins.getFlake` on a dirty working
+          # copy ingests the whole checkout first.
+          locked() {
+            nix eval --raw --impure --expr \
+              "let p = (builtins.getFlake (toString ./.)).inputs.nixpkgs.legacyPackages.\${builtins.currentSystem}; in p.$1.version or \"\""
+          }
+          attr="go_$(echo "$go" | cut -d. -f1-2 | tr . _)"
+          have=$(locked "$attr")
+          if [ -z "$have" ]; then
+            echo "::error::the locked nixpkgs has no ${attr} — a new line waits for nixpkgs to package it"
+            exit 1
+          fi
+          echo "Locked nixpkgs: ${attr} = ${have}"
+
+          tc='{"go": {}}'
+          if [ "$go" != "$have" ]; then
+            hash=$(nix store prefetch-file --json "https://go.dev/dl/go${go}.src.tar.gz" | jq -r .hash)
+            tc=$(jq --arg v "$go" --arg h "$hash" '.go[$v] = $h' <<< "$tc")
+          fi
+          printf '%s\n' "$tc" | jq --indent 2 . > nix/toolchains.json
+          cat nix/toolchains.json
+
+      - name: Commit
+        id: commit
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          git diff --name-only | sed 's/^/  /' >> "$GITHUB_STEP_SUMMARY"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(deps): derive the pins renovate cannot compute"
+          git push
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Renovate pins" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.commit.outputs.changed }}" = "true" ]; then
+            echo "✅ Derived — see the files above" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ job.status }}" = "success" ]; then
+            echo "⏭️ All pins already current" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ Could not derive the pins" >> "$GITHUB_STEP_SUMMARY"
+          fi

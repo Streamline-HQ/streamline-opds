@@ -2,23 +2,83 @@
 name: CI
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
 
-permissions: {}
+# No concurrency group: each run tests only the sections its own diff touches,
+# so a run replaced by a newer one would leave its commit untested for good.
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
-  build-lint:
+  # One diff, read once, decides which sections run. `ci-ok` at the end is the
+  # one check branch protection requires.
+  changes:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      nix: ${{ steps.filter.outputs.nix }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Detect changed sections
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          # `shared` is how every job gets its tools and its commands, so a
+          # change there runs them all.
+          filters: |
+            shared: &shared
+              - 'flake.nix'
+              - 'flake.lock'
+              - 'Taskfile.yaml'
+              - '.github/workflows/ci.yaml'
+              - '.github/actions/**'
+            go:
+              - *shared
+              - '**/*.go'
+              - '**/go.mod'
+              - '**/go.sum'
+              - 'go.work'
+              - '.golangci.y*ml'
+            nix:
+              - *shared
+              - 'nix/**'
+              - 'statix.toml'
 
+  # Go and Nix through treefmt, at the versions go.mod and the flake pin.
+  # Formatting is cheap, so it runs on every change.
+  format:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+      - name: Binary cache
+        uses: ./.github/actions/nix-builder
+        with:
+          attic-token: ${{ secrets.ATTIC_PULL_TOKEN }}
+      - name: treefmt
+        run: nix fmt -- --ci
+
+  lint-go:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -26,14 +86,128 @@ jobs:
           cache-dependency-path: |
             go.sum
             e2e/go.sum
-
       - name: Install Task
         uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
         with:
-          github-token: ${{ github.token }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: golangci-lint
+        run: task lint
 
-      - name: Build
+  lint-nix:
+    needs: changes
+    if: needs.changes.outputs.nix == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Nix
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+      # Everything `nix flake check` evaluates, without building any of it.
+      - name: Evaluate the flake
+        run: nix flake check --no-build
+      - name: statix and deadnix
+        run: nix build --no-link --print-build-logs .#checks.x86_64-linux.nix-lint
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            e2e/go.sum
+      - name: Install Task
+        uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the module
         run: task build
 
-      - name: Lint
-        run: task lint
+  # The tests wait for every lint and build, and a failure there skips them. A
+  # job skipped by its own filter does not: `!failure()` replaces the default
+  # "every need succeeded".
+  # Boots a real Streamline with this module approved as an extension.
+  test-e2e:
+    needs: [changes, format, lint-go, lint-nix, build]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.go == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            e2e/go.sum
+      - name: Install Task
+        uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Nix
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+        with:
+          # `nix copy --no-check-sigs` needs the runner to be trusted.
+          extra_nix_config: trusted-users = root runner
+      - name: Binary cache
+        uses: ./.github/actions/nix-builder
+        with:
+          ssh-key: ${{ secrets.NIX_BUILDER_SSH_KEY }}
+          attic-token: ${{ secrets.ATTIC_PULL_TOKEN }}
+      # The Streamline the SDK pin was cut from: the oldest one that serves
+      # every host function this module calls. The pseudo-version carries the
+      # commit's first 12 hex digits; a flake reference needs all 40.
+      - name: Build Streamline at the SDK's commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          short=$(sed -nE 's#^\s*(require )?github\.com/datahearth/streamline/extensions/sdk v[^ ]*-([0-9a-f]{12})$#\2#p' go.mod)
+          [ -n "$short" ] || { echo "::error file=go.mod::no SDK pseudo-version to build Streamline from"; exit 1; }
+          sha=$(gh api "repos/DataHearth/streamline/commits/$short" -q .sha)
+          ref="github:DataHearth/streamline/$sha#streamline"
+          if [ -n "${NIX_BUILDER_STORE:-}" ]; then
+            nix build --no-link --print-build-logs --store "$NIX_BUILDER_STORE" --eval-store auto "$ref"
+            nix copy --no-check-sigs --from "$NIX_BUILDER_STORE" "$ref"
+          fi
+          nix build --print-build-logs --out-link "$RUNNER_TEMP/streamline" "$ref"
+          echo "STREAMLINE_BIN=$RUNNER_TEMP/streamline/bin/streamline" >> "$GITHUB_ENV"
+      - name: End-to-end specs
+        run: task test
+
+  # The one check branch protection should require. A job skipped by its `if`
+  # reads as passing, and so does every job when `changes` itself fails, so
+  # this fails unless `changes` succeeded and every section either passed or
+  # was skipped.
+  ci-ok:
+    if: always()
+    needs: [changes, format, lint-go, lint-nix, build, test-e2e]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Every section passed or was skipped
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "changes: $CHANGES; jobs: $RESULTS"
+          [ "$CHANGES" = success ] || { echo "::error::the changes job did not succeed"; exit 1; }
+          for r in $RESULTS; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::a CI job ended $r"; exit 1 ;;
+            esac
+          done
