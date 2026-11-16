@@ -1,0 +1,4 @@
+# repeated_keys flags `a.b = …; a.c = …;`, which is how flake-parts and NixOS
+# modules are written; grouping them into one `a = { … };` only adds nesting.
+disabled = ["repeated_keys"]
+ignore = [".direnv"]
